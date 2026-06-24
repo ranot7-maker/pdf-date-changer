@@ -53,10 +53,8 @@ if uploaded_files and st.button("🚀 PDF 전체 변환 시작"):
                 original_rect.y1 + 25 + shift_down
             )
             
-            # 새로운 날짜 입력 (폰트 경로가 유효할 때만 지정)
+         # 새로운 날짜 입력 (폰트 경로가 유효할 때만 지정)
             insert_kwargs = {
-                "rect": text_rect,
-                "text": target_date,
                 "fontsize": 15,
                 "color": (0, 0, 0),
                 "align": 1,
@@ -68,7 +66,9 @@ if uploaded_files and st.button("🚀 PDF 전체 변환 시작"):
                 insert_kwargs["fontname"] = "ko-gulim"
                 insert_kwargs["fontfile"] = font_path
                 
-            page.insert_textbox(**insert_kwargs)
+            # 에러 해결 핵심: 첫 번째 인자에 사각형 좌표(text_rect)를, 
+            # 두 번째 인자에 실제 들어갈 글자(target_date)를 정확히 배치합니다.
+            page.insert_textbox(text_rect, target_date, **insert_kwargs)
             
             # 변환된 PDF를 바이트 데이터로 저장
             output_bytes = doc.tobytes()
