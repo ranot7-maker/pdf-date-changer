@@ -69,7 +69,7 @@ if uploaded_files and st.button("🚀 PDF 전체 변환 시작"):
                     page.draw_rect(text_rect, color=(1, 1, 1), fill=(1, 1, 1))
                     
                     # 2. 새로 글씨 쓸 상자 (오른쪽 미세 이동 반영)
-                    shift_right = 100
+                    shift_right = 40
                     rect_text = fitz.Rect(x_left + shift_right, y_top, x_right + shift_right, y_bottom)
                     
                     insert_kwargs = {
