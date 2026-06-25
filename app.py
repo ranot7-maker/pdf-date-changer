@@ -4,56 +4,62 @@ import os
 
 st.set_page_config(page_title="PDF 날짜 변경기", page_icon="📅", layout="centered")
 
-st.title("📅 PDF 수료증 날짜 일괄 변경기")
-st.write("PDF 파일을 업로드하면 원래 있던 날짜를 가리고 지정한 날짜를 '굴림체 굵게' 아래쪽에 새로 입력해 줍니다.")
+st.title("📅 PDF 수료증 날짜 일괄 변경기 (절대 좌표 모드)")
+st.write("PDF의 특정 위치를 무조건 흰색 박스로 가리고 지정한 날짜를 '굴림체 굵게' 새로 입력합니다.")
 
 # 1. 사용자로부터 변경할 날짜 입력 받기
 target_date = st.text_input("변경할 날짜를 입력하세요", value="2026년 07월 20일")
 
-# 2. 파일 업로드 컴포넌트 (여러 파일 동시 업로드 가능)
+# 2. 파일 업로드 컴포넌트
 uploaded_files = st.file_uploader("수정할 PDF 파일들을 선택하세요", type=["pdf"], accept_multiple_files=True)
 
-# 윈도우 시스템 폰트가 없는 리눅스 서버 환경(배포 환경)을 위해 
-# app.py 내의 폰트 경로 체크 부분을 아래와 같이 수정
-font_path = "gulim.ttc"  # 깃허브에 같이 올린 폰트 파일을 우선 참조
+# 폰트 경로 설정
+font_path = "gulim.ttc"
 if not os.path.exists(font_path):
-    font_path = "C:/Windows/Fonts/gulim.ttc"  # 로컬 테스트용 백업
-    font_path = None 
+    font_path = "C:/Windows/Fonts/gulim.ttc"
 
 if uploaded_files and st.button("🚀 PDF 전체 변환 시작"):
     success_count = 0
     
     for uploaded_file in uploaded_files:
         try:
-            # 업로드된 파일을 메모리 상에서 PDF로 열기
             file_bytes = uploaded_file.read()
             doc = fitz.open(stream=file_bytes, filetype="pdf")
             page = doc[0]
             
-            # 원본 PDF에서 바꿀 대상 텍스트 위치 찾기
-            target_text = "2026년 06월 19일"
-            text_instances = page.search_for(target_text)
+            # ⭐️ [핵심] 절대 좌표 기준 설정 (픽셀 단위)
+            # 기준 해상도: 2480 x 3509
+            # 이전 대화에서 잡았던 날짜 부근의 픽셀 좌표를 절대 기준으로 고정합니다.
+            img_width = 2480
+            img_height = 3509
             
-            if not text_instances:
-                st.warning(f"⚠️ {uploaded_file.name}: '{target_text}' 문구를 찾지 못해 건너뜁니다.")
-                doc.close()
-                continue
-                
-            original_rect = text_instances[0]
+            # 원래 날짜가 있던 대략적인 픽셀 영역
+            pixel_x0, pixel_y0 = 1530, 2500
+            pixel_x1, pixel_y1 = 2210, 2560
             
-            # 흰색 네모박스로 가리기
-            page.draw_rect(original_rect, color=(1, 1, 1), fill=(1, 1, 1))
+            # ⭐️ [보완] 사용자가 요청한 "하단으로 이동" 효과를 절대 좌표에 아예 반영
+            # 원래 위치보다 Y축을 아래로 18픽셀(포인트 비율 계산 전 픽셀 환산 적용 약 80px) 더 내려서 잡습니다.
+            pixel_y0 += 80
+            pixel_y1 += 80
+
+            # PDF 실제 포인트 크기에 맞추기 위한 비율 계산
+            pdf_width = page.rect.width
+            pdf_height = page.rect.height
+            x_scale = pdf_width / img_width
+            y_scale = pdf_height / img_height
             
-            # Y축 하단 이동 (이전 설정값 18)
-            shift_down = 18  
+            # 픽셀 좌표 -> PDF 포인트 좌표로 변환하여 사각형 정의
             text_rect = fitz.Rect(
-                original_rect.x0 - 15,
-                original_rect.y0 - 20 + shift_down,
-                original_rect.x1 + 15,
-                original_rect.y1 + 25 + shift_down
+                pixel_x0 * x_scale,
+                pixel_y0 * y_scale,
+                pixel_x1 * x_scale,
+                pixel_y1 * y_scale
             )
             
-         # 새로운 날짜 입력 (폰트 경로가 유효할 때만 지정)
+            # 3. 흰색 네모박스로 해당 영역 무조건 가리기
+            page.draw_rect(text_rect, color=(1, 1, 1), fill=(1, 1, 1))
+            
+            # 4. 새로운 날짜 입력 설정
             insert_kwargs = {
                 "fontsize": 15,
                 "color": (0, 0, 0),
@@ -62,19 +68,16 @@ if uploaded_files and st.button("🚀 PDF 전체 변환 시작"):
                 "fill_opacity": 1,
                 "render_mode": 2
             }
-            if font_path:
+            if os.path.exists(font_path if font_path else ""):
                 insert_kwargs["fontname"] = "ko-gulim"
                 insert_kwargs["fontfile"] = font_path
                 
-            # 에러 해결 핵심: 첫 번째 인자에 사각형 좌표(text_rect)를, 
-            # 두 번째 인자에 실제 들어갈 글자(target_date)를 정확히 배치합니다.
+            # 지정된 절대 좌표 상자에 글자 입력
             page.insert_textbox(text_rect, target_date, **insert_kwargs)
             
-            # 변환된 PDF를 바이트 데이터로 저장
             output_bytes = doc.tobytes()
             doc.close()
             
-            # 웹 화면에 개별 다운로드 버튼 생성
             st.success(f"✅ {uploaded_file.name} 변환 성공!")
             st.download_button(
                 label=f"📥 [다운로드] {uploaded_file.name}",
@@ -89,4 +92,4 @@ if uploaded_files and st.button("🚀 PDF 전체 변환 시작"):
             st.error(f"❌ {uploaded_file.name} 처리 중 에러 발생: {e}")
             
     if success_count > 0:
-        st.balloons() # 축하 효과 애니메이션 표시
+        st.balloons()
