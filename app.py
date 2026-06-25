@@ -7,13 +7,13 @@ import io
 st.set_page_config(page_title="PDF 날짜 변경기", page_icon="📅", layout="centered")
 
 st.title("📅 PDF 수료증 날짜 일괄 변경기")
-st.write("'이를 수여합니다.' 문구를 기준으로 하단 날짜를 자동 인식하여 '굴림체 굵게' 새로 입력합니다.")
+st.write("파일 내의 모든 페이지를 돌며 '이를 수여합니다.' 문구 기준 하단 날짜를 전부 찾아 새로 입력합니다.")
 
 # 1. 사용자로부터 변경할 날짜 입력 받기
 target_date = st.text_input("변경할 날짜를 입력하세요", value="2026년 07월 20일")
 
 # 2. 파일 업로드 컴포넌트
-uploaded_files = st.file_uploader("수정할 PDF 파일들을 선택하세요", type=["pdf"], accept_multiple_files=True)
+uploaded_files = st.file_uploader("수정할 PDF 파일들을 선택하세요 (한 파일 내 여러 페이지 자동 지원)", type=["pdf"], accept_multiple_files=True)
 
 # 폰트 경로 설정
 font_path = "gulim.ttc"
@@ -40,64 +40,54 @@ if uploaded_files and st.button("🚀 PDF 전체 변환 시작"):
             try:
                 file_bytes = uploaded_file.read()
                 doc = fitz.open(stream=file_bytes, filetype="pdf")
-                page = doc[0]
                 
-                # "이를 수여합니다." 고정 문구 위치 찾기
-                base_text = "이를 수여합니다."
-                base_instances = page.search_for(base_text)
-                
-                if not base_instances:
-                    st.warning(f"⚠️ {uploaded_file.name}: '{base_text}' 문구를 찾지 못해 건너뜁니다.")
-                    doc.close()
-                    continue
+                # ⭐️ [핵심 변경 포인트] 파일 내의 모든 페이지를 순서대로 탐색합니다. ⭐️
+                for page_num in range(len(doc)):
+                    page = doc[page_num]
                     
-                # "이를 수여합니다."의 좌표 구하기
-                base_rect = base_instances[0]
-                
-                # ⭐️ [위치 조정 핵심 가이드] ⭐️
-                # 글씨 위치를 바꾸고 싶다면 여기 두 숫자를 조절하세요!
-                # +35: "수여합니다" 글자 밑변에서 아래로 35만큼 떨어진 지점부터 흰 상자가 시작됩니다.
-                # +95: "수여합니다" 글자 밑변에서 아래로 95만큼 떨어진 지점까지 흰 상자가 쳐집니다.
-                y_top = base_rect.y1 + 80 
-                y_bottom = base_rect.y1 + 150
-                
-                # 가로 영역 (좌우 50씩 넉넉하게 확장)
-                x_left = base_rect.x0 + 95
-                x_right = base_rect.x1 + 150
-                
-                # 최종 직사각형 정의
-                text_rect = fitz.Rect(x_left, y_top, x_right, y_bottom)
-                
-                # ⭐️ [에러 해결] 속성 에러가 발생하는 구문을 안전한 표준 검사로 변경 ⭐️
-                if text_rect.is_empty:
-                    st.error(f"❌ {uploaded_file.name}: 날짜 상자 영역이 비어있습니다.")
-                    doc.close()
-                    continue
-
-                # 3. 자동 계산된 원래 날짜 위치를 흰색 네모박스로 깔끔하게 지우기
-                page.draw_rect(text_rect, color=(1, 1, 1), fill=(1, 1, 1))
-                
-                # 4. 새로운 날짜 입력 설정 (굴림체 굵게)
-                # 가운데(1)보다 약간만 더 오른쪽으로 밀고 싶다면 아래 숫자를 10, 15, 20 등으로 조금씩 바꿔보세요!
-                shift_right = 40
-                rect_text = fitz.Rect(x_left + shift_right, y_top, x_right + shift_right, y_bottom)
-
-                
-                insert_kwargs = {
-                    "fontsize": 15,
-                    "color": (0, 0, 0),
-                    "align": 1,
-                    "stroke_opacity": 1,
-                    "fill_opacity": 1,
-                    "render_mode": 2
-                }
-                if os.path.exists(font_path if font_path else ""):
-                    insert_kwargs["fontname"] = "ko-gulim"
-                    insert_kwargs["fontfile"] = font_path
+                    # "이를 수여합니다." 고정 문구 위치 찾기
+                    base_text = "이를 수여합니다."
+                    base_instances = page.search_for(base_text)
                     
-                # 안전하게 자동 계산된 상자 안에 글자 입력
-                page.insert_textbox(rect_text, target_date, **insert_kwargs)
+                    # 만약 이 페이지에 해당 문구가 없다면 (예: 표지나 안내장) 다음 페이지로 패스
+                    if not base_instances:
+                        continue
+                        
+                    # "이를 수여합니다."의 좌표 구하기
+                    base_rect = base_instances[0]
+                    
+                    # 잡아두신 황금 좌표 비율 그대로 유지
+                    y_top = base_rect.y1 + 80 
+                    y_bottom = base_rect.y1 + 150
+                    x_left = base_rect.x0 + 95
+                    x_right = base_rect.x1 + 150
+                    
+                    # 1. 기존 날짜 가리는 흰 박스 상자
+                    text_rect = fitz.Rect(x_left, y_top, x_right, y_bottom)
+                    if text_rect.is_empty:
+                        continue
+                    page.draw_rect(text_rect, color=(1, 1, 1), fill=(1, 1, 1))
+                    
+                    # 2. 새로 글씨 쓸 상자 (오른쪽 미세 이동 반영)
+                    shift_right = 100
+                    rect_text = fitz.Rect(x_left + shift_right, y_top, x_right + shift_right, y_bottom)
+                    
+                    insert_kwargs = {
+                        "fontsize": 15,
+                        "color": (0, 0, 0),
+                        "align": 1,
+                        "stroke_opacity": 1,
+                        "fill_opacity": 1,
+                        "render_mode": 2
+                    }
+                    if os.path.exists(font_path if font_path else ""):
+                        insert_kwargs["fontname"] = "ko-gulim"
+                        insert_kwargs["fontfile"] = font_path
+                        
+                    # 글씨 새기기
+                    page.insert_textbox(rect_text, target_date, **insert_kwargs)
                 
+                # 모든 페이지 수정이 끝난 파일 저장
                 output_bytes = doc.tobytes()
                 doc.close()
                 
